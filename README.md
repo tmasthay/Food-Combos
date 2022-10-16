@@ -21,15 +21,16 @@ This script lets you write combinations of different files to help come up with 
 
 # get_started.sh
 This script gets you started generating the database and doing a few search queries. ```cross.py``` has six command line arguments, of which the only 
-mandatory one is ```input_files```. Some important notes...
+mandatory one is ```input_files```. ```get_started.sh``` is just two lines; the first makes the database and explicitly uses all command line arguments for illustration purposes; the second line shows how you will likely want to use most of the time, with most options defaulted, outside of input and output file names.
 
-**(1) If input_files is empty, the program will intentionally crash, so it is MANDATORY.** 
+To get started, just perform the following from command line!
 
-**(2) When creating your command line arguments, the program parses Python strings, so make sure to take into account bash string parsing with ' and " characters!**
+```
+chmod +x get_started.sh
+./get_started.sh
+```
 
-**(3) database generation takes ~15 minutes, but after that queries are essentially instantaneous.**
-
-Here is a description of each command line argument.
+Below is a description of the command line arguments for ```cross.py```.
 
 ```
 ext -- desired file extension for your output file -- defaults to ".txt"
@@ -39,3 +40,13 @@ empty -- when True, this will add the empty string to your lists, i.e., if you m
 cartesian -- when True, will explicitly list all possible combos of your two files, else will just list them in column format -- defaults to False
 update -- when True, this will run update.py to add to the database, else will just do parsing -- defaults to False
 ```
+
+**SOME IMPORTANT NOTES BELOW**
+
+**(1) If input_files is empty, the program will intentionally crash, so it is MANDATORY.** 
+
+**(2) When creating your command line arguments, the program parses Python strings, so make sure to take into account bash string parsing with ' and " characters!**
+
+**(3) database generation takes ~15 minutes, but after that queries are essentially instantaneous.**
+
+**(4) In general, don't try to read through all the output; it is just there to expose you to new dishes and to get your mind thinking in ways you might not normally as far as food combinations!**
