@@ -3,6 +3,12 @@ from subprocess import check_output as co
 import re
 import os
 
+def filter_out(x, l):
+    for ll in l:
+        x = [e for e in x \
+            if ll.lower() not in e.lower()]
+    return x
+
 def reg_clean(lp, rp, lb, rb, bar):
     def helper(x, inv=False):
         if( inv ):
@@ -174,27 +180,36 @@ def process_pages(max_dishes):
         .decode('utf-8') \
         .split('\n')[:-1]
     regex = '\* \[.*\].*/wiki/.* ".*".*'
+    exclusions = ['cuisine', 'list', 'beer', 
+        ':', '#', 'dish',
+        'food', 'meal', 'product',
+        'festival', 'page', 'history',
+        'wine', 'cocktail']
     for curr in res:
         lcl = curr.split('/')
         cdir = '%s/%s'%(os.getcwd(), curr)
         clean_page = '%s/WebContentClean_%s.txt'%(cdir, lcl[-1])
         try:
-            s = open(clean_page, 'r').read()
+            s = open(clean_page, 'r').read() 
+            s = re.split("#[#]*[ \n]*See[ \n]*also",
+                s)
+            t = [e for e in s[0].split("*") if len(
+                re.findall('^[ \n\t_]*.*/wiki/.* ".*".*[ \n\t_]*', e)) > 0]
+            fnl_res = [e.split('/wiki/')[1].split(' ')[0] for e in t]
+            fnl_res = filter_out(fnl_res, exclusions)
+            write_and_close('%s/results.txt'%cdir, '\n'.join(fnl_res))
         except:
             print('Skipping %s, %s'%(curr, clean_page))
             continue
-        curr_res = re.findall(regex, s)
-        out_file = open('%s/results.txt'%cdir, 'w')
-        fnl_res = [e.split('/wiki/')[-1].split(' ')[0] for e in curr_res]
-        fnl_res = [e for e in fnl_res if 'cuisine' not in e.lower()]
-        out_file.write('\n'.join(fnl_res))
-        out_file.close()
-        print('%s: %d'%(curr, len(curr_res)))
+        print('%s: %d'%(curr, len(fnl_res)))
 
-def go():
+def go(refetch):
     max_dishes = 100
-    #fetch_pages()
+    if( refetch ):
+        fetch_pages()
     process_pages(max_dishes)
 
 if( __name__ == "__main__" ):
-    go()  
+    fetch = get_arg('fetch', False,
+        lambda x : str(x).lower()[0] == 't')
+    go(fetch) 
