@@ -11,7 +11,7 @@ or
 pip install html2text
 ```
 The only other packages used are ```re```, ```os```, and ```subprocess```, which I believe are standard with a Python installation. 
-However, if not, perform a similar command to the above if 
+However, if not, perform a similar command to the above if Python cannot find one or more of those modules.
 # update.py
 This script updates the database of data.
 
