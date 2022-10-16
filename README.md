@@ -21,10 +21,13 @@ This script lets you write combinations of different files to help come up with 
 
 # get_started.sh
 This script gets you started generating the database and doing a few search queries. ```cross.py``` has six command line arguments, of which the only 
-mandatory one is ```input_files```. **If input_files is empty, the program will intentionally crash.** 
-As another note, when creating your command line arguments, **make sure to take into account bash string parsing with ' and " characters!**
-The examples in ```get_started.sh``` should be self-explanatory on this front. 
-**NOTE: database generation takes ~15 minutes, but after that queries are essentially instantaneous.**
+mandatory one is ```input_files```. Some important notes...
+
+**(1) If input_files is empty, the program will intentionally crash, so it is MANDATORY.** 
+
+**(2) When creating your command line arguments, the program parses Python strings, so make sure to take into account bash string parsing with ' and " characters!**
+
+**(3) database generation takes ~15 minutes, but after that queries are essentially instantaneous.**
 
 Here is a description of each command line arguments.
 
