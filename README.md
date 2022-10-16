@@ -29,7 +29,7 @@ mandatory one is ```input_files```. Some important notes...
 
 **(3) database generation takes ~15 minutes, but after that queries are essentially instantaneous.**
 
-Here is a description of each command line arguments.
+Here is a description of each command line argument.
 
 ```
 ext -- desired file extension for your output file -- defaults to ".txt"
