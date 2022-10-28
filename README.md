@@ -1,5 +1,5 @@
 # Food-Combos
-Small script that scrapes Wiki pages to find a bunch of different dishes.
+Small script that generates lists of food combinations by scraping Wikipedia articles. 
 
 # installation
 html2text should be the only dependency and can be installed by pip or conda. Just perform one of the following commands
