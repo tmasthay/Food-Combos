@@ -157,7 +157,7 @@ def fetch_pages():
         parts = f.split('/')
         cdir = parts[:-1]
         page = 'https://en.wikipedia.org/wiki/%s'%parts[-1]
-        if( os.path.exists('%s/WebContentsClean_%s.txt'%(f, parts[-1])) ):
+        if( os.path.exists('%s/WebContentClean_%s.txt'%(f, parts[-1])) ):
             print('Skipping %d of %d'%(num_performed, num_files))
             continue
         try:
