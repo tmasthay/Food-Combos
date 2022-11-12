@@ -4,10 +4,14 @@ from subprocess import check_output as co
 import re
 import os
 from helper import get_random_combos, get_full_random_combos
+from tkHyperLinkManager import HyperlinkManager
+from functools import partial
+import webbrowser
 
 top = Tk()
-output_box = Text(top, height = 10, width = 100)
+output_box = Text(top, height = 30, width = 100)
 output_box.pack()
+hyperlink = HyperlinkManager(output_box)
 
 if( not os.path.exists('Final') ):
     output_box.delete('1.0', END)
@@ -76,14 +80,23 @@ def button_call_back():
             cmd += "' cartesian=True"
             print('Executing "%s"'%(cmd))
             os.system(cmd)
-        try:
-            num_combos = int(list_length_input.get())
-            res = '\n'.join(get_random_combos(target_file, num_combos))
-            output_box.delete('1.0',END)
-            output_box.insert(END, res)
-        except:
-            output_box.delete('1.0', END)
-            output_box.insert(END, 'Invalid combo #="%s"'%list_length_input.get())
+        #try:
+        num_combos = int(list_length_input.get())
+        res = [e.split(',') for e in get_random_combos(target_file, num_combos)]
+        output_box.delete('1.0',END)
+        for r in res:
+            for (i,rr) in enumerate(r):
+                rr = rr.replace('\\','')
+                print(rr)
+                output_box.insert(END, rr,
+                    hyperlink.add(partial(webbrowser.open,"https://en.wikipedia.org/wiki/%s"%rr)))
+                if( i == 0 ):
+                    output_box.insert(END,',')
+                else:
+                    output_box.insert(END,'\n')
+        # except:
+        #     output_box.delete('1.0', END)
+        #     output_box.insert(END, 'Invalid combo #="%s"'%list_length_input.get())
 
         return 0
 
@@ -104,5 +117,5 @@ btn2 = Button(top, text='Run Full Query History', command=full_call_back)
 btn2.pack()
 
 
-top.geometry('1024x1024')
+top.geometry('1024x2000')
 top.mainloop()
