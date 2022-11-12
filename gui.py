@@ -5,6 +5,17 @@ import re
 import os
 from helper import get_random_combos, get_full_random_combos
 
+top = Tk()
+output_box = Text(top, height = 10, width = 100)
+output_box.pack()
+
+if( not os.path.exists('Final') ):
+    output_box.delete('1.0', END)
+    output_box.insert(END, 'Fetching data for database...check terminal for progress updates...should take 10-20 minutes on a laptop.')
+    os.system('python update.py fetch=True')
+    output_box.delete('1.0', END)
+    output_box.insert(END, 'Fetching data should be complete...check terminal output for any errors')
+
 def extract(cmd):
     return co(cmd, shell=True).decode('utf-8').split('\n')[:-1]
 
@@ -20,8 +31,6 @@ for p in paths:
         curr = i*indent_no*indent_char + pp
         if( i == len(pp) - 1 or (curr not in indented_files) ):
             indented_files.append(curr)
-        
-top = Tk()
 
 box1_text = StringVar()
 combobox = ttk.Combobox(top, values=indented_files, state='readonly', textvariable=box1_text)
@@ -32,10 +41,8 @@ combobox = ttk.Combobox(top, values=indented_files, state='readonly', textvariab
 combobox.pack(fill='x')
 
 list_length_input = Entry(top, width = 20)
+list_length_input.insert(END, '20')
 list_length_input.pack()
-
-output_box = Text(top, height = 10, width = 100)
-output_box.pack()
 
 def button_call_back():
     first_search = '.*%s.*'%(box1_text.get()).replace(indent_char,'')
@@ -95,6 +102,7 @@ def full_call_back():
 
 btn2 = Button(top, text='Run Full Query History', command=full_call_back)
 btn2.pack()
+
 
 top.geometry('1024x1024')
 top.mainloop()

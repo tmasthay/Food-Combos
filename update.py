@@ -2,6 +2,7 @@ from html2text import html2text as htt
 from subprocess import check_output as co
 import re
 import os
+from helper import get_arg
 
 def filter_out(x, l):
     for ll in l:
@@ -197,7 +198,11 @@ def process_pages(max_dishes):
                 re.findall('^[ \n\t_]*.*/wiki/.* ".*".*[ \n\t_]*', e)) > 0]
             fnl_res = [e.split('/wiki/')[1].split(' ')[0] for e in t]
             fnl_res = filter_out(fnl_res, exclusions)
-            write_and_close('%s/results.txt'%cdir, '\n'.join(fnl_res))
+            while( '' in fnl_res ):
+                fnl_res.remove('')
+            thres = 5
+            if( len(fnl_res) >= thres ):
+                write_and_close('%s/results.txt'%cdir, '\n'.join(fnl_res))
         except:
             print('Skipping %s, %s'%(curr, clean_page))
             continue

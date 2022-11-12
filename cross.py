@@ -2,6 +2,7 @@ import sys
 import itertools
 from subprocess import check_output as co
 from update import write_and_close, go
+from helper import get_arg
 
 def remove_all(the_list, elem):
     try:
@@ -10,14 +11,6 @@ def remove_all(the_list, elem):
     except:
         pass
     return the_list
-
-def get_arg(field, deflt, eval_func, deflt_eval=True):
-    cmd_args = ' '.join(sys.argv)
-    res = cmd_args.split('%s='%field)
-    if( deflt_eval ):
-        return eval_func(deflt) if len(res) == 1 else eval_func(res[1].split(' ')[0])
-    else:
-        return deflt if len(res) == 1 else eval_func(res[1])
 
 def create_product(ext, input_files, out_file,
     empty, cartesian=False, nspaces=5):
