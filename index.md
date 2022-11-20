@@ -1,7 +1,3 @@
----
-title: Test Title
----
-
 # Hello
 Small script that generates lists of food combinations by scraping Wikipedia articles. 
 
