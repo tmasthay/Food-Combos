@@ -2,7 +2,7 @@
 title: Test Title
 ---
 
-# {{page.title}}
+# Hello
 Small script that generates lists of food combinations by scraping Wikipedia articles. 
 
 # installation
