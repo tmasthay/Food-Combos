@@ -1,4 +1,8 @@
-# Food-Combos
+---
+title: Food-Combos
+---
+
+# {{page.title}}
 Small script that generates lists of food combinations by scraping Wikipedia articles. 
 
 # installation
