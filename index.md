@@ -2,7 +2,7 @@
 title: Food-Combos
 ---
 
-# NOPE
+# {{page.title}}
 Small script that generates lists of food combinations by scraping Wikipedia articles. 
 
 # installation
