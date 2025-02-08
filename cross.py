@@ -44,7 +44,7 @@ def create_product(ext, input_files, out_file,
             u += curr_line + '\n'
     write_and_close(out_file, u)
 
-if( __name__ == "__main__" ):
+def getResults():
     ext_default = 'txt'
     out_default = 'out.%s'%ext_default
     empty_default = False
@@ -85,12 +85,15 @@ if( __name__ == "__main__" ):
     if( ext not in out_file ):
         out_file = '%s.%s'%(out_file,ext)
 
-    print('REFETCHING DATABASE')
     if( update_data ):
+        print('REFETCHING DATABASE')    
         go(True)
-    print('DONE REFETCHING')
+        print('DONE REFETCHING')
 
     print('BEGINNING PRODUCT QUERY')
     create_product(ext, input_files, out_file, 
         empty, cartesian)
     print('SUCCESS: output in "%s"'%(out_file))
+
+if __name__ == '__main__':
+    getResults()
