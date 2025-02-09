@@ -4,15 +4,20 @@ Small script that generates lists of food combinations by scraping Wikipedia art
 # installation
 html2text should be the only dependency and can be installed by pip or conda. Just perform one of the following commands
 ```
-conda install html2text
+git clone X
+cd Food-Combos
+pip install -r requirements.txt
 ```
-or
-```
-pip install html2text
-```
-The only other packages used are ```re```, ```os```, and ```subprocess```, which I believe are standard with a Python installation. 
-However, if not, perform a similar command to the above if Python cannot find one or more of those modules.
 
-From there, just run ```python gui.py``` from terminal and the gui should open up. 
+To setup the database of foods, run the following. This might take a few minutes (it's fetching HTML pages from wikipedia), but only ever needs to be run once.
 
-NOTE: if you just want to see the whole list, set the number of samples to a very large number, and it should work out since the sampling algorithm is without replacement. 
+```
+python update.py fetch=True
+python update_yaml.py
+```
+
+From there just run
+
+```
+python nextGen.py
+```
