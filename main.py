@@ -42,7 +42,8 @@ class ComboApp(QWidget):
         layout.addLayout(trees_layout)
 
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Number of results")
+        self.input_field.setPlaceholderText("Number of results to generate")
+        self.input_field.setText("50")
 
         self.button = QPushButton("Regenerate Random Combos")
         self.output = QTextEdit()
