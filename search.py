@@ -46,6 +46,13 @@ def build_narrowing(args):
         overrides['distinct_groups'] = False
     if args.raw:
         overrides['drop_noise'] = False
+    if args.include_settled:
+        overrides['exclude_settled'] = False
+    if args.only_new:
+        overrides['exclude_known'] = True
+    if args.only_status:
+        overrides['only_status'] = args.only_status
+        overrides['exclude_settled'] = False
     return narrowing.with_(**overrides)
 
 
@@ -53,6 +60,8 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--data', default='data.yaml', help='database to load')
     parser.add_argument('--root', default='Final', help='fallback scraped tree')
+    parser.add_argument('--ledger', default='combos.db',
+                        help='verdict database; ignored if absent')
     parser.add_argument('--json', action='store_true', help='machine-readable output')
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -87,6 +96,14 @@ def parse_args(argv=None):
     combos.add_argument('--allow-same-group', action='store_true')
     combos.add_argument('--raw', action='store_true',
                         help='do not hide scraped non-food entries')
+    combos.add_argument('--include-settled', action='store_true',
+                        help='keep combinations already rejected or disliked')
+    combos.add_argument('--only-new', action='store_true',
+                        help='only combinations the ledger has never seen')
+    combos.add_argument('--only-status', action='append', default=[],
+                        choices=('proposed', 'rejected', 'tried_good',
+                                 'tried_bad', 'tried_mixed'),
+                        help='review past verdicts instead of finding new ones')
     combos.add_argument('--rank-distinct', action='store_true',
                         help='rank by the built-in shared-token penalty')
     combos.add_argument('--urls', action='store_true', help='print wiki links')
@@ -96,7 +113,7 @@ def parse_args(argv=None):
 def main(argv=None):
     use_utf8_stdout()
     args = parse_args(argv)
-    db = FoodDB.load(path=args.data, root=args.root)
+    db = FoodDB.load(path=args.data, root=args.root, ledger=args.ledger)
 
     if args.command == 'summary':
         summary = db.summary()
@@ -145,7 +162,11 @@ def main(argv=None):
                 if args.urls:
                     for url in combo.urls():
                         print('    %s' % url)
-            print('(%d combinations; seed %s)' % (len(results), narrowing.seed))
+            suffix = ''
+            if db.judged:
+                suffix = '; %d judged combinations known' % len(db.judged)
+            print('(%d combinations; seed %s%s)'
+                  % (len(results), narrowing.seed, suffix))
 
 
 if __name__ == '__main__':

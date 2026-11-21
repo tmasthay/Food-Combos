@@ -1,0 +1,24 @@
+{
+  "name": "food-combos-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-only app for voting on and recording food combinations",
+  "scripts": {
+    "dev": "concurrently -n api,ui -c blue,magenta \"npm:dev:api\" \"npm:dev:ui\"",
+    "dev:api": "node --watch server/index.js",
+    "dev:ui": "vite",
+    "build": "vite build",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vite": "^7.1.14"
+  }
+}

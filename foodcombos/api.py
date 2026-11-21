@@ -37,6 +37,13 @@ WILDCARDS = '*?['
 #: cheese with that chutney") reliably findable.
 ENUMERATE_CAP = 300000
 
+#: Ledger statuses the search stops offering.  Mirrors
+#: ``verdicts.SETTLED`` deliberately: this module must not import the
+#: ledger at load time, so that search keeps working -- and keeps
+#: passing ``tools/check_offline.py`` -- with no database present.
+#: ``tools/check_offline.py`` asserts the two stay in step.
+SETTLED_STATUSES = ('rejected', 'tried_bad')
+
 
 def _as_pattern(text):
     """Treat a bare word as a substring match, anything else as a glob."""
@@ -102,13 +109,27 @@ def is_noise(food):
 
 @dataclass(frozen=True)
 class Combo:
-    """One candidate combination, with provenance."""
+    """One candidate combination, with provenance.
+
+    ``status`` is filled in from the verdict ledger when a search is run
+    with one attached, and is ``None`` otherwise -- search works with no
+    ledger at all.
+    """
 
     items: tuple  # ((group, food), ...)
+    status: str = None
 
     @property
     def foods(self):
         return tuple(food for _, food in self.items)
+
+    @property
+    def key(self):
+        """Ledger identity: the same canonical key ``verdicts`` uses."""
+        return '|'.join(sorted(unescape(food) for food in self.foods))
+
+    def with_status(self, status):
+        return replace(self, status=status)
 
     @property
     def groups(self):
@@ -121,10 +142,11 @@ class Combo:
         return ' + '.join(pretty_food(food) for food in self.foods)
 
     def labelled(self):
-        return ' + '.join(
+        body = ' + '.join(
             '%s [%s]' % (pretty_food(food), group.rsplit('.', 1)[-1])
             for group, food in self.items
         )
+        return body if not self.status else '%s  <%s>' % (body, self.status)
 
 
 @dataclass
@@ -161,6 +183,17 @@ class Narrowing:
     ``seed``
         Sampling seed, so a narrowing is reproducible and an agent can
         quote it back.
+    ``exclude_settled``
+        Drop combinations the ledger considers settled -- rejected, or
+        cooked and disliked.  On by default: re-offering something a
+        human already ruled on wastes their attention, which is the
+        scarce resource here.
+    ``exclude_known``
+        Stronger: drop anything the ledger has ever heard of, settled or
+        not.  Use it to ask "show me only what nobody has looked at".
+    ``only_status``
+        The inverse -- restrict to combinations already in the ledger
+        with one of these statuses, for reviewing past proposals.
     """
 
     slots: list = field(default_factory=list)
@@ -173,6 +206,9 @@ class Narrowing:
     require_all: list = field(default_factory=list)
     distinct_groups: bool = True
     drop_noise: bool = True
+    exclude_settled: bool = True
+    exclude_known: bool = False
+    only_status: list = field(default_factory=list)
     limit: int = 20
     per_group: int = 0
     seed: int = 0
@@ -203,17 +239,46 @@ class Narrowing:
 class FoodDB:
     """The scraped database, plus the search this module exists for."""
 
-    def __init__(self, groups):
+    def __init__(self, groups, judged=None):
         self.groups = dict(sorted(groups.items()))
+        #: ``{combo_key: status}`` from the verdict ledger, or ``{}``.
+        #: Read once per search, not once per candidate -- the set is
+        #: small and the inner loop is hot.
+        self.judged = dict(judged or {})
 
     # ---------------------------------------------------------------- load
 
     @classmethod
-    def load(cls, path=database.YAML_PATH, root=database.DATA_ROOT):
-        """Load ``data.yaml`` if present, else walk the scraped tree."""
+    def load(cls, path=database.YAML_PATH, root=database.DATA_ROOT,
+             ledger=None):
+        """Load ``data.yaml`` if present, else walk the scraped tree.
+
+        ``ledger`` is an optional path to the verdict database.  Search
+        works perfectly well without one; passing it just means results
+        get annotated and settled combinations get suppressed.
+        """
         if os.path.exists(path):
-            return cls(database.flatten(database.load_yaml(path)))
-        return cls(database.load_flat(root=root))
+            db = cls(database.flatten(database.load_yaml(path)))
+        else:
+            db = cls(database.load_flat(root=root))
+        if ledger:
+            db.attach_ledger(ledger)
+        return db
+
+    def attach_ledger(self, path):
+        """Read verdict statuses from the ledger at ``path``.
+
+        Imported here rather than at module scope so that search keeps
+        working -- and keeps passing ``tools/check_offline.py`` -- on a
+        machine that has never created a ledger.
+        """
+        from .verdicts import Ledger
+        if not os.path.exists(path):
+            self.judged = {}
+            return self
+        with Ledger.open(path, create=False) as ledger:
+            self.judged = ledger.status_map()
+        return self
 
     # ------------------------------------------------------------ browsing
 
@@ -283,6 +348,8 @@ class FoodDB:
         return True
 
     def _combo_ok(self, items, narrowing):
+        if self.judged and not self._verdict_ok(items, narrowing):
+            return False
         foods = [food for _, food in items]
         if len({f.lower() for f in foods}) != len(foods):
             return False
@@ -298,6 +365,18 @@ class FoodDB:
             for needle in narrowing.require_any:
                 if not any(contains(food, needle) for food in foods):
                     return False
+        return True
+
+    def _verdict_ok(self, items, narrowing):
+        """Apply the ledger's opinion of this combination."""
+        key = Combo(tuple(items)).key
+        status = self.judged.get(key)
+        if narrowing.only_status:
+            return status in narrowing.only_status
+        if narrowing.exclude_known and status is not None:
+            return False
+        if narrowing.exclude_settled and status in SETTLED_STATUSES:
+            return False
         return True
 
     def slot_pools(self, narrowing):
@@ -353,9 +432,14 @@ class FoodDB:
                     break
         return pools
 
+    def _annotate(self, combo):
+        """Stamp a combination with the ledger's verdict, if any."""
+        status = self.judged.get(combo.key)
+        return combo.with_status(status) if status else combo
+
     def _enumerate(self, pools, narrowing, score):
         combos = [
-            Combo(items)
+            self._annotate(Combo(items))
             for items in itertools.product(*pools)
             if self._combo_ok(items, narrowing)
         ]
@@ -378,7 +462,7 @@ class FoodDB:
             if items in seen or not self._combo_ok(items, narrowing):
                 continue
             seen.add(items)
-            combos.append(Combo(items))
+            combos.append(self._annotate(Combo(items)))
         if score is not None:
             combos.sort(key=score, reverse=True)
         return combos

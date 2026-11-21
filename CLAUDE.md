@@ -9,15 +9,23 @@ A Wikipedia scraper plus a search toy. It walks `Portal:Food`, follows the
 titles it finds into a directory tree of plain text files. Then a human and an
 agent use that tree to hunt for food combinations nobody has tried.
 
-There is no database server, no ORM, no SQL, and that is a decision — the data
-is ~400 lists and ~20k names, which fits in memory and reads fine as text.
-Do not "upgrade" it to SQL.
+**The scraped data is plain text and stays that way.** ~400 lists and ~20k
+names fit in memory and read fine as files; there is no ORM and no SQL over
+them, and that is a decision. Don't "upgrade" `Final/` or `data.yaml` to a
+database.
+
+**The verdict ledger is SQLite, and that is also a decision.** `combos.db`
+holds what humans judged — votes, trials, rejections. It is irreplaceable
+(nothing can regenerate it), it has two concurrent writers, and the search
+queries it per candidate pair. Those are the problems a database solves.
+Don't "simplify" it back to flat files. See `foodcombos/verdicts.py`.
 
 ## Layout
 
 ```
 foodcombos/
   paths.py      filesystem (sanitizing, Windows long paths, utf-8)
+  verdicts.py   the verdict ledger (SQLite) -- OWNS THE SCHEMA
   wiki.py       title -> URL (stdlib only; safe to import from anywhere)
   fetch.py      HTTP (User-Agent, retries, throttle)  <-- the only network
   portal.py     Portal:Food  ->  the Final/ tree
@@ -31,9 +39,12 @@ update.py       CLI: scrape
 update_yaml.py  CLI: build data.yaml
 cross.py        CLI: cross two lists into one file
 search.py       CLI: narrowed search
+ledger.py       CLI: read/write verdicts
+web/            local React app for voting and recording trials
 tools/
   compare_trees.py   regression check: new scrape vs old
   check_offline.py   asserts the query tools never touch the network
+  seed_ledger.py     loads PLAUSIBLE_COMBOS.md into the ledger
 gui.py          old tkinter GUI (unmaintained)
 nextGen.py      Qt GUI (unmaintained)
 ```
@@ -121,6 +132,84 @@ them is a bug, even if the code is prettier.
 
 Check it by scraping into a second root and diffing — compare the set of
 `results.txt` paths and the set of foods per page, not file timestamps.
+
+## The verdict loop
+
+The scrape tells you what foods exist. It cannot tell you whether a
+combination is good, and neither can you — only somebody who cooked it
+knows. `combos.db` is where that knowledge accumulates, and it is the
+reason the next pass is smarter than the last one.
+
+Four event kinds, append-only:
+
+| kind | who emits it | means |
+|---|---|---|
+| `propose` | usually you | "this might work, here's the mechanism" |
+| `reject` | usually you | "ruled out, here's why" — without cooking it |
+| `vote` | humans, in the web app | a hunch, cheap to give |
+| `trial` | humans, in the web app | somebody actually ate it |
+
+A *trial outranks a rejection*: armchair reasoning loses to a fork. And
+the newest event from one actor wins, so a changed vote is a new row,
+never an edit. The whole history stays readable:
+
+```
+python ledger.py log Katsuobushi Maple_butter
+```
+
+### Your side of the loop
+
+After a search, write down what you concluded — both halves. The
+rejections matter as much as the proposals, because they're what stops
+the next pass re-offering the same dead ends:
+
+```
+python ledger.py propose Katsuobushi Maple_butter     --rationale "inosinate against caramel; bacon-and-maple without the fat"
+python ledger.py reject Paprika Tsampa     --reason "paprika is an ingredient, not a thing you pair with porridge"
+```
+
+Then `search.py` consults the ledger automatically:
+
+```
+python search.py combos --slot smoked --slot porridge   # settled ones hidden
+python search.py combos --only-new                      # never-seen only
+python search.py combos --only-status tried_good        # review what worked
+python search.py combos --include-settled               # see them anyway
+```
+
+`rejected` and `tried_bad` are *settled* and suppressed by default.
+`tried_good` is not suppressed — a combination that worked is worth
+building on, and results carry a `<tried_good>` tag so you can see it.
+
+Two constants have to agree: `api.SETTLED_STATUSES` mirrors
+`verdicts.SETTLED` by hand, because `api.py` must not import the ledger
+at module scope (see the offline rule above). `tools/check_offline.py`
+asserts they match.
+
+### Reading the ledger before you search
+
+Check what's already been judged before spending a search on it:
+
+```
+python ledger.py stats
+python ledger.py list --status tried_good
+python ledger.py list --status rejected
+```
+
+If a human tried something and liked it, the interesting next move is
+usually a *variation* on it, not a fresh random pair — swap one element
+and keep the mechanism. If they disliked it, the mechanism you claimed
+was probably wrong; say so in the next rationale rather than quietly
+proposing a near-duplicate.
+
+### Don't
+
+- Don't `UPDATE` or `DELETE` in `combos.db`. Ever. Correct a mistake by
+  appending the correcting event.
+- Don't propose in bulk. Twenty machine-generated proposals with no
+  rationale is noise a human has to clear. Propose what you can argue for.
+- Don't edit the schema on the Node side. Python owns it; bump
+  `SCHEMA_VERSION` in both places or the server refuses to start.
 
 ## Narrowed search: reading what the human wants
 

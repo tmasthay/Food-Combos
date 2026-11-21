@@ -60,9 +60,27 @@ CASES = (
 )
 
 
+def check_settled_mirror():
+    """``api.SETTLED_STATUSES`` must track ``verdicts.SETTLED``.
+
+    api.py deliberately does not import the ledger at module scope, so
+    that search works with no database present.  The two constants are
+    kept in step by this assertion rather than by the import system.
+    """
+    from foodcombos.api import SETTLED_STATUSES
+    from foodcombos.verdicts import SETTLED
+    if tuple(SETTLED_STATUSES) != tuple(SETTLED):
+        raise AssertionError(
+            'api.SETTLED_STATUSES %s != verdicts.SETTLED %s'
+            % (tuple(SETTLED_STATUSES), tuple(SETTLED))
+        )
+    print('--- settled-status mirror agrees: %s' % (tuple(SETTLED),))
+
+
 def main():
     os.chdir(ROOT)
     install_guards()
+    check_settled_mirror()
     for name, argv in CASES:
         print('--- %s %s' % (name, ' '.join(argv)))
         run_script(name, argv)

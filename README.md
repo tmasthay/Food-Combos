@@ -66,6 +66,40 @@ python search.py combos --spec narrowing.example.yaml
 `PLAUSIBLE_COMBOS.md` is a hand-picked set of results from the current
 database.
 
+## Vote on them, and record what you actually ate
+
+The scraper can propose; only a person can say whether it was any good.
+`combos.db` is where that accumulates, and the search reads it back.
+
+```
+python ledger.py init            # create the ledger
+python tools/seed_ledger.py      # optional: the agent's first pass
+
+cd web && npm install && npm run dev      # http://127.0.0.1:5173
+```
+
+Three views: what was **proposed**, what was **rejected**, what somebody
+**tried**. Upvote, downvote, or record a verdict with notes. Local only,
+no accounts — the name you type is a label so the ledger can tell an
+agent's proposal from a human's verdict. See `web/README.md`.
+
+From the command line, without the app:
+
+```
+python ledger.py list --status tried_good
+python ledger.py propose Katsuobushi Maple_butter --rationale "inosinate vs caramel"
+python ledger.py trial Katsuobushi Maple_butter --good --notes "on sourdough"
+python ledger.py export > verdicts.jsonl      # diffable snapshot
+```
+
+Searches then skip what's settled:
+
+```
+python search.py combos --slot smoked --slot porridge   # hides rejected / tried-bad
+python search.py combos --only-new                      # never-seen only
+python search.py combos --only-status tried_good        # review what worked
+```
+
 ## Cross two lists by hand
 
 ```
@@ -83,8 +117,9 @@ python cross.py --cartesian --out Queries/coffee_dessert \
 
 | doing | needs |
 |---|---|
-| `search.py`, `cross.py` on an existing database | `pyyaml` (and `cross.py` not even that) |
+| `search.py`, `cross.py`, `ledger.py` on an existing database | `pyyaml` (stdlib `sqlite3` for the ledger) |
 | `update.py --fetch` -- the one-time download | `html2text` + network |
+| the web app | Node 22+ (`node:sqlite` is built in); `npm install` in `web/` |
 | the GUIs | `PyQt6` |
 
 ## Notes
