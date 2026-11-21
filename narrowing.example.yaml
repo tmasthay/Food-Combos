@@ -1,0 +1,21 @@
+# A narrowing: where to look, not what to think.
+# Run with:  python search.py combos --spec narrowing.example.yaml
+# Every field is optional; see CLAUDE.md for what each one means.
+
+note: >
+  Breakfast, but wrong. I want a bread or a pastry against something
+  pickled or preserved -- the sort of thing that works in Scandinavia
+  and nowhere else. No sauces, no condiments on their own.
+
+slots:
+  - bread            # one element from any list page matching *bread*
+  - preserve         # ...and one from any list page matching *preserve*
+
+exclude_foods:
+  - '*sauce*'
+  - '*syrup*'
+
+per_group: 60        # keep a 900-item list from swamping a 12-item one
+distinct_groups: true
+limit: 20
+seed: 7

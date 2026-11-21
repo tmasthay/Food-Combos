@@ -1,0 +1,6 @@
+Final/
+data.yaml
+Queries/
+out.txt
+__pycache__/
+*.pyc

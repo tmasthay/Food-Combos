@@ -1,28 +1,30 @@
-import numpy as np
-from subprocess import check_output as co
+"""Backwards-compatible shims.
+
+The old tkinter GUI (``gui.py``) imports these names.  The real
+implementations now live in :mod:`foodcombos.combos`.
+"""
+
 import sys
 
+from foodcombos.combos import sample_file, sample_tree
+
+
 def get_arg(field, deflt, eval_func, deflt_eval=True):
-    cmd_args = ' '.join(sys.argv)
-    res = cmd_args.split('%s='%field)
-    if( deflt_eval ):
-        return eval_func(deflt) if len(res) == 1 else eval_func(res[1].split(' ')[0])
-    else:
-        return deflt if len(res) == 1 else eval_func(res[1])
+    """Legacy ``key=value`` command line reader.
+
+    New code should use :mod:`argparse`; this remains only so that old
+    scripts and the tkinter GUI keep working.
+    """
+    parts = ' '.join(sys.argv).split('%s=' % field)
+    if len(parts) == 1:
+        return eval_func(deflt) if deflt_eval else deflt
+    value = parts[1].split(' ')[0] if deflt_eval else parts[1]
+    return eval_func(value)
+
 
 def get_random_combos(combo_file, num_combos):
-    l = np.array(open(combo_file, 'r').read().split('\n'))
-    return np.random.choice(l, num_combos)
+    return sample_file(combo_file, num_combos)
+
 
 def get_full_random_combos(directory, num_combos):
-    s = co('find %s -name "*.txt"'%directory, shell=True).decode('utf-8').split('\n')
-    while( '' in s ):
-        s = s[:-1]
-    all_combos = []
-    for ss in s:
-        curr = open(ss, 'r').read().split('\n')
-        for c in curr:
-            if( c != '' ):
-                all_combos.append(c)
-    all_combos = np.ndarray.flatten(np.array(all_combos))
-    return np.random.choice(all_combos, num_combos)
+    return sample_tree(directory, num_combos)
