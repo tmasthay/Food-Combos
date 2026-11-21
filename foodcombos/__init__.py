@@ -3,6 +3,7 @@
 The package is deliberately small and dependency-light:
 
 ``paths``     filesystem helpers (Windows-safe, utf-8 everywhere)
+``wiki``      Wikipedia title -> URL (stdlib only, no network)
 ``fetch``     polite Wikipedia fetching (User-Agent, retries, on-disk cache)
 ``portal``    turns ``Portal:Food`` into the ``Final/`` directory tree
 ``lists``     turns a fetched ``List_of_*`` page into ``results.txt``
@@ -19,4 +20,5 @@ __all__ = [
     'lists',
     'paths',
     'portal',
+    'wiki',
 ]

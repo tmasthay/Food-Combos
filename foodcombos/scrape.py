@@ -1,9 +1,10 @@
 """End-to-end scrape: portal -> directory tree -> pages -> results.txt."""
 
-from .fetch import FetchError, fetch_markdown, page_url
+from .fetch import FetchError, fetch_markdown
 from .lists import MIN_RESULTS, process_page
 from .paths import DATA_ROOT, exists, iter_dirs, iter_list_dirs, write_text
 from .portal import scrape_portal
+from .wiki import page_url
 
 
 def _page_files(page_dir):

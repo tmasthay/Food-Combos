@@ -17,7 +17,6 @@ import sys
 from foodcombos.cli import use_utf8_stdout
 from foodcombos.combos import COLUMN_GAP, product_text
 from foodcombos.paths import write_text
-from foodcombos.scrape import run
 
 LEGACY_FLAGS = ('empty', 'cartesian', 'update')
 
@@ -72,6 +71,9 @@ def main(argv=None):
         else '%s.%s' % (args.out, args.ext)
 
     if args.update:
+        # Imported here, not at the top: crossing lists already on disk
+        # is an offline operation and must not need the fetching stack.
+        from foodcombos.scrape import run
         print('Refetching database...')
         run(refetch=True)
 

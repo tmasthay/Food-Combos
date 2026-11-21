@@ -12,8 +12,9 @@ down.  ``split_sections`` is that single operation, used three times.
 
 import re
 
-from .fetch import fetch_markdown, page_url
+from .fetch import fetch_markdown
 from .paths import DATA_ROOT, write_text
+from .wiki import page_url
 
 #: The "v" (view) link that opens each navbox.  Wikipedia serves these
 #: hrefs absolute today and served them relative in the past, so both

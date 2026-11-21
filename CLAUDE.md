@@ -18,7 +18,8 @@ Do not "upgrade" it to SQL.
 ```
 foodcombos/
   paths.py      filesystem (sanitizing, Windows long paths, utf-8)
-  fetch.py      HTTP (User-Agent, retries, throttle)
+  wiki.py       title -> URL (stdlib only; safe to import from anywhere)
+  fetch.py      HTTP (User-Agent, retries, throttle)  <-- the only network
   portal.py     Portal:Food  ->  the Final/ tree
   lists.py      one fetched page  ->  results.txt
   scrape.py     orchestration (fetch all, process all)
@@ -30,12 +31,46 @@ update.py       CLI: scrape
 update_yaml.py  CLI: build data.yaml
 cross.py        CLI: cross two lists into one file
 search.py       CLI: narrowed search
+tools/
+  compare_trees.py   regression check: new scrape vs old
+  check_offline.py   asserts the query tools never touch the network
 gui.py          old tkinter GUI (unmaintained)
 nextGen.py      Qt GUI (unmaintained)
 ```
 
 **The GUIs are out of scope.** Don't fix them unless asked. `helper.py` exists
 only because `gui.py` imports it.
+
+## Online once, offline after
+
+The network is touched in exactly one place: `foodcombos/fetch.py`, reached
+only by `update.py --fetch` (and `cross.py --update`, which calls the same
+thing). That run is bandwidth-bound and slow -- about 1100 pages, several
+minutes, throttled on purpose -- and it caches, so it is a one-time cost.
+
+Everything after it reads the local `Final/` tree or `data.yaml`:
+`search.py`, `foodcombos/api.py`, `foodcombos/database.py`,
+`foodcombos/combos.py`, `cross.py` without `--update`, and `update.py` without
+`--fetch` (which re-parses pages already on disk). None of them open a socket.
+
+This is a guarantee, not an accident, and it is enforced:
+
+```
+python tools/check_offline.py
+```
+
+That runs the query tools with `socket.socket`, `create_connection` and
+`getaddrinfo` replaced by exceptions *and* with `html2text`, `urllib.request`
+and `http.client` made unimportable. Keep it passing. Concretely:
+
+- `foodcombos/wiki.py` holds title-to-URL formatting and is stdlib-only, so
+  the search path can print Wikipedia links without importing the fetcher.
+  Import `page_url` from there, never from `fetch`.
+- Don't add a module-level `from .fetch import ...` (or anything that pulls it
+  in) to `api.py`, `database.py`, `combos.py`, or `cross.py`. `cross.py`
+  imports `scrape.run` lazily inside its `--update` branch for this reason.
+- If a search ever needs data that isn't scraped yet, the answer is to widen
+  the scrape and re-run the one-time download -- not to fetch at query time.
 
 ## The data model
 
@@ -74,7 +109,7 @@ These cost hours. All four are fixed in the code; don't reintroduce them.
    points call `cli.use_utf8_stdout()`.
 
 Also: non-ASCII titles must be percent-encoded before they reach the network
-(`fetch.page_url`), and `…` is not the only character Wikipedia will throw
+(`wiki.page_url`), and `…` is not the only character Wikipedia will throw
 at you.
 
 ## Regression rule

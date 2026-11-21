@@ -15,12 +15,9 @@ way:
 
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from html2text import html2text
-
-WIKI_BASE = 'https://en.wikipedia.org/wiki/'
 
 #: Wikimedia's robot policy asks for a contact address in the User-Agent.
 USER_AGENT = (
@@ -39,17 +36,6 @@ _last_request = [0.0]
 
 class FetchError(RuntimeError):
     """Raised when a page could not be retrieved after every retry."""
-
-
-#: Characters left alone when percent-encoding a title.  ``#`` stays so
-#: that a title such as ``Mustard_condiment#American`` keeps behaving as
-#: a fragment, i.e. resolves to the base article.
-URL_SAFE = "/:#?&=,()'!*+$;@~"
-
-
-def page_url(title):
-    """Wikipedia URL for ``title``, safe for non-ASCII titles."""
-    return WIKI_BASE + urllib.parse.quote(title, safe=URL_SAFE)
 
 
 def _throttle():

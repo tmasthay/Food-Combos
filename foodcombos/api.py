@@ -28,7 +28,7 @@ import random
 from dataclasses import dataclass, field, replace
 
 from . import database
-from .fetch import page_url
+from .wiki import page_url
 
 WILDCARDS = '*?['
 

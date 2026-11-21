@@ -38,6 +38,13 @@ works.
 
 ## Search it
 
+**Everything below is offline.** The network is used exactly once, by
+`update.py --fetch`; after that the database is a directory of text files plus
+`data.yaml`, and searching never opens a socket. `tools/check_offline.py`
+enforces that -- it runs the query tools with sockets booby-trapped and the
+fetching stack made unimportable, so a stray request *or* a stray import fails
+the check.
+
 ```
 python search.py summary
 python search.py groups coffee             # which lists mention coffee
@@ -71,6 +78,14 @@ python cross.py --cartesian --out Queries/coffee_dessert \
 
 `nextGen.py` (Qt) and `gui.py` (tkinter) are unmaintained. They read
 `data.yaml`; if they break, the scraper and `search.py` do not care.
+
+## Dependencies, by what you are doing
+
+| doing | needs |
+|---|---|
+| `search.py`, `cross.py` on an existing database | `pyyaml` (and `cross.py` not even that) |
+| `update.py --fetch` -- the one-time download | `html2text` + network |
+| the GUIs | `PyQt6` |
 
 ## Notes
 
