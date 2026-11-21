@@ -1,46 +1,80 @@
 import React, { useState } from 'react';
-import { prettyFood, wikiUrl } from '../api.js';
+import { prettyFood, verdictFor, wikiUrl } from '../api.js';
 
 const STATUS_LABEL = {
   proposed: 'proposed',
   rejected: 'rejected',
-  tried_good: 'tried — good',
-  tried_bad: 'tried — bad',
-  tried_mixed: 'tried — mixed',
+  tried_good: 'good',
+  tried_bad: 'bad',
+  tried_mixed: 'mixed',
 };
 
-export default function ComboCard({ combo, mine, actor, onVote, onTrial, onReject }) {
+export default function ComboCard({
+  combo,
+  mine,
+  actor,
+  onVote,
+  onTrial,
+  onReject,
+  onTagClick,
+  activeTags = [],
+}) {
   const [open, setOpen] = useState(false);
+  // Default the slider to your previous rating if you have one, so
+  // "change my mind" starts from where you left off rather than 50.
+  const [score, setScore] = useState(mine?.score ?? 50);
   const [notes, setNotes] = useState(mine?.notes ?? '');
   const [reason, setReason] = useState('');
   const myVote = mine?.vote ?? 0;
-  const myTrial = mine?.trial;
 
   // Clicking your own vote again retracts it, which is what the 0 value
   // in the ledger is for.
   const vote = (value) => onVote(combo.combo_key, myVote === value ? 0 : value);
+  const rated = combo.n_trials > 0;
 
   return (
     <article className={`card status-${combo.status}`}>
       <div className="card-main">
-        <div className="votes">
-          <button
-            className={`vote up ${myVote > 0 ? 'active' : ''}`}
-            onClick={() => vote(1)}
-            disabled={!actor}
-            title={actor ? 'Upvote' : 'Enter your name first'}
-          >
-            ▲
-          </button>
-          <span className="score">{combo.score > 0 ? `+${combo.score}` : combo.score}</span>
-          <button
-            className={`vote down ${myVote < 0 ? 'active' : ''}`}
-            onClick={() => vote(-1)}
-            disabled={!actor}
-            title={actor ? 'Downvote' : 'Enter your name first'}
-          >
-            ▼
-          </button>
+        <div className="gutter">
+          {rated ? (
+            <div
+              className={`rating rating-${verdictFor(combo.mean_score)}`}
+              title={`mean of ${combo.n_trials} rating${
+                combo.n_trials > 1 ? 's' : ''
+              }, ${Math.round(combo.min_score)}–${Math.round(combo.max_score)}`}
+            >
+              <span className="rating-number">
+                {Math.round(combo.mean_score)}
+              </span>
+              <span className="rating-n">n={combo.n_trials}</span>
+            </div>
+          ) : (
+            <div className="rating rating-none" title="nobody has cooked it">
+              <span className="rating-number">–</span>
+              <span className="rating-n">untried</span>
+            </div>
+          )}
+          <div className="votes">
+            <button
+              className={`vote up ${myVote > 0 ? 'active' : ''}`}
+              onClick={() => vote(1)}
+              disabled={!actor}
+              title={actor ? 'Worth trying' : 'Enter your name first'}
+            >
+              ▲
+            </button>
+            <span className="score">
+              {combo.score > 0 ? `+${combo.score}` : combo.score}
+            </span>
+            <button
+              className={`vote down ${myVote < 0 ? 'active' : ''}`}
+              onClick={() => vote(-1)}
+              disabled={!actor}
+              title={actor ? 'Not worth trying' : 'Enter your name first'}
+            >
+              ▼
+            </button>
+          </div>
         </div>
 
         <div className="body">
@@ -59,62 +93,83 @@ export default function ComboCard({ combo, mine, actor, onVote, onTrial, onRejec
             <span className={`badge badge-${combo.status}`}>
               {STATUS_LABEL[combo.status] ?? combo.status}
             </span>
-            {combo.proposed_by && <span>proposed by {combo.proposed_by}</span>}
-            {combo.n_trials > 0 && (
+            {combo.proposed_by && <span>by {combo.proposed_by}</span>}
+            {rated && combo.n_trials > 1 && (
               <span>
-                {combo.n_good}&nbsp;good · {combo.n_bad}&nbsp;bad
-                {combo.n_mixed > 0 && ` · ${combo.n_mixed} mixed`}
-              </span>
-            )}
-            {combo.groups?.length > 0 && (
-              <span className="groups">
-                {combo.groups.map((g) => g.split('.').pop()).join(' × ')}
+                spread {Math.round(combo.min_score)}–
+                {Math.round(combo.max_score)}
               </span>
             )}
           </div>
 
+          {combo.tags?.length > 0 && (
+            <div className="tags">
+              {combo.tags.map((tag) => (
+                <button
+                  key={tag}
+                  className={`tag tag-${tag.split(':')[0]} ${
+                    activeTags.includes(tag) ? 'on' : ''
+                  }`}
+                  onClick={() => onTagClick(tag)}
+                  title={`filter by ${tag}`}
+                >
+                  {tag.split(':')[1].replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+          )}
+
           {combo.rationale && <p className="rationale">{combo.rationale}</p>}
           {combo.reject_reason && (
             <p className="reason">
-              rejected by {combo.rejected_by}: {combo.reject_reason}
+              ruled out by {combo.rejected_by}: {combo.reject_reason}
             </p>
           )}
         </div>
       </div>
 
       <div className="actions">
-        {myTrial ? (
+        {mine?.score != null && (
           <span className="mine">
-            you tried this: <strong>{myTrial}</strong>
+            you rated this <strong>{Math.round(mine.score)}</strong>
           </span>
-        ) : null}
+        )}
         <button className="link" onClick={() => setOpen(!open)} disabled={!actor}>
-          {open ? 'cancel' : myTrial ? 'change verdict' : 'I tried this'}
+          {open ? 'cancel' : mine?.score != null ? 'change rating' : 'I tried this'}
         </button>
       </div>
 
       {open && (
         <div className="trial-form">
+          <label className="slider-row">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={score}
+              onChange={(e) => setScore(Number(e.target.value))}
+              aria-label="rating out of 100"
+            />
+            <output className={`slider-value rating-${verdictFor(score)}`}>
+              {score}
+            </output>
+          </label>
           <input
             type="text"
             placeholder="How was it? (optional notes)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
-          <div className="trial-buttons">
-            {['good', 'mixed', 'bad'].map((verdict) => (
-              <button
-                key={verdict}
-                className={`verdict verdict-${verdict}`}
-                onClick={() => {
-                  onTrial(combo.combo_key, verdict, notes);
-                  setOpen(false);
-                }}
-              >
-                {verdict}
-              </button>
-            ))}
-          </div>
+          <button
+            className={`submit rating-${verdictFor(score)}`}
+            onClick={() => {
+              onTrial(combo.combo_key, score, notes);
+              setOpen(false);
+            }}
+          >
+            record {score}/100
+          </button>
           <div className="reject-row">
             <input
               type="text"

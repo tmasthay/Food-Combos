@@ -6,7 +6,14 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
-import { assertSchema, SchemaError, SETTLED, VERDICTS } from './schema.js';
+import {
+  assertSchema,
+  SchemaError,
+  SCORE_MAX,
+  SCORE_MIN,
+  SETTLED,
+  verdictFor,
+} from './schema.js';
 
 export { SchemaError };
 
@@ -39,6 +46,12 @@ function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
 }
 
+function splitTag(tag) {
+  const at = tag.indexOf(':');
+  if (at < 1) throw new Error(`Tag must look like facet:value, got ${tag}`);
+  return [tag.slice(0, at), tag.slice(at + 1)];
+}
+
 function hydrate(row) {
   if (!row) return null;
   return {
@@ -49,7 +62,11 @@ function hydrate(row) {
   };
 }
 
+// 'rating' ranks by the shrunk mean, so a single rave does not outrank
+// a well-liked combination several people have cooked. Untried ones sort
+// below rated ones rather than vanishing.
 const ORDERS = {
+  rating: 'bayes_score IS NULL, bayes_score DESC, score DESC',
   score: 'score DESC, first_seen DESC',
   recent: 'first_seen DESC',
   votes: 'ups + downs DESC, score DESC',
@@ -66,25 +83,65 @@ export class Ledger {
 
   // --------------------------------------------------------------- reading
 
-  states({ status = [], order = 'score', limit = 200 } = {}) {
-    let sql = 'SELECT * FROM combo_state';
+  // `tags` are facet:value strings and narrow rather than widen: a
+  // combination must carry every one of them.
+  states({ status = [], order = 'rating', limit = 200, tags = [] } = {}) {
+    let sql = 'SELECT s.* FROM combo_state s';
     const params = [];
+    tags.forEach((tag, index) => {
+      const [facet, value] = splitTag(tag);
+      const alias = `t${index}`;
+      sql +=
+        ` JOIN combo_tag ${alias} ON ${alias}.combo_key = s.combo_key` +
+        ` AND ${alias}.facet = ? AND ${alias}.value = ?`;
+      params.push(facet, value);
+    });
     if (status.length) {
-      sql += ` WHERE status IN (${status.map(() => '?').join(',')})`;
+      sql += ` WHERE s.status IN (${status.map(() => '?').join(',')})`;
       params.push(...status);
     }
-    sql += ` ORDER BY ${ORDERS[order] ?? ORDERS.score} LIMIT ?`;
+    sql += ` ORDER BY ${ORDERS[order] ?? ORDERS.rating} LIMIT ?`;
     params.push(limit);
-    return this.db
+    const rows = this.db
       .prepare(sql)
       .all(...params)
       .map(hydrate);
+    return this.#withTags(rows);
+  }
+
+  #withTags(rows) {
+    if (!rows.length) return rows;
+    const keys = rows.map((r) => r.combo_key);
+    const found = this.db
+      .prepare(
+        `SELECT combo_key, facet, value FROM combo_tag
+         WHERE combo_key IN (${keys.map(() => '?').join(',')})
+         ORDER BY facet, value`
+      )
+      .all(...keys);
+    const byKey = new Map(keys.map((k) => [k, []]));
+    for (const t of found) byKey.get(t.combo_key)?.push(`${t.facet}:${t.value}`);
+    return rows.map((r) => ({ ...r, tags: byKey.get(r.combo_key) ?? [] }));
+  }
+
+  tagCounts() {
+    const counts = {};
+    for (const row of this.db
+      .prepare(
+        `SELECT facet, value, COUNT(*) AS n FROM combo_tag
+         GROUP BY facet, value ORDER BY facet, n DESC, value`
+      )
+      .all()) {
+      (counts[row.facet] ??= []).push({ value: row.value, n: row.n });
+    }
+    return counts;
   }
 
   state(key) {
-    return hydrate(
+    const row = hydrate(
       this.db.prepare('SELECT * FROM combo_state WHERE combo_key = ?').get(key)
     );
+    return row ? this.#withTags([row])[0] : null;
   }
 
   events(key) {
@@ -102,7 +159,8 @@ export class Ledger {
       .all(actor);
     const trials = this.db
       .prepare(
-        'SELECT combo_key, verdict, notes FROM trial_current WHERE actor = ?'
+        'SELECT combo_key, score, verdict, notes FROM trial_current' +
+          ' WHERE actor = ?'
       )
       .all(actor);
     const out = {};
@@ -111,6 +169,7 @@ export class Ledger {
       out[t.combo_key] = {
         ...(out[t.combo_key] ?? {}),
         trial: t.verdict,
+        score: t.score,
         notes: t.notes,
       };
     }
@@ -195,16 +254,21 @@ export class Ledger {
     return this.record({ key, foods, kind: 'vote', actor, payload: { value: v } });
   }
 
-  trial({ key, foods, actor, verdict, notes = '' }) {
-    if (!VERDICTS.includes(verdict)) {
-      throw new Error(`Verdict must be one of ${VERDICTS.join(', ')}`);
+  // A rating out of 100. The verdict is derived, never chosen, so the
+  // band shown and the number recorded cannot drift apart.
+  trial({ key, foods, actor, score, notes = '' }) {
+    const value = Number(score);
+    if (!Number.isFinite(value) || value < SCORE_MIN || value > SCORE_MAX) {
+      throw new Error(
+        `Rating must be a number from ${SCORE_MIN} to ${SCORE_MAX}`
+      );
     }
     return this.record({
       key,
       foods,
       kind: 'trial',
       actor,
-      payload: { verdict, notes },
+      payload: { score: value, verdict: verdictFor(value), notes },
     });
   }
 

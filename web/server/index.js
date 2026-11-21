@@ -11,7 +11,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { openLedger, SchemaError } from './db.js';
-import { STATUSES, SCHEMA_VERSION } from './schema.js';
+import { FACETS, STATUSES, SCHEMA_VERSION } from './schema.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
@@ -58,6 +58,9 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/stats', handle((_req, res) => res.json(ledger.stats())));
 
+// The facet menu the UI builds its filter chips from.
+app.get('/api/tags', handle((_req, res) => res.json(ledger.tagCounts())));
+
 app.get(
   '/api/combos',
   handle((req, res) => {
@@ -65,10 +68,14 @@ app.get(
     const bad = raw.filter((s) => !STATUSES.includes(s));
     if (bad.length) throw new Error(`Unknown status: ${bad.join(', ')}`);
     const actor = (req.query.actor ?? '').trim();
+    const tags = [].concat(req.query.tag ?? []);
+    const badTags = tags.filter((t) => !FACETS.includes(t.split(':')[0]));
+    if (badTags.length) throw new Error(`Unknown facet: ${badTags.join(', ')}`);
     res.json({
       combos: ledger.states({
         status: raw,
-        order: req.query.order ?? 'score',
+        tags,
+        order: req.query.order ?? 'rating',
         limit: Math.min(Number(req.query.limit ?? 200), 1000),
       }),
       mine: actor ? ledger.myOpinions(actor) : {},
@@ -116,7 +123,7 @@ for (const [path, kind] of [
       const body = req.body ?? {};
       if (kind === 'vote') ledger.vote({ key, actor, value: body.value });
       else if (kind === 'trial')
-        ledger.trial({ key, actor, verdict: body.verdict, notes: body.notes });
+        ledger.trial({ key, actor, score: body.score, notes: body.notes });
       else if (kind === 'reject')
         ledger.reject({ key, actor, reason: body.reason });
       else ledger.note({ key, actor, text: body.text });

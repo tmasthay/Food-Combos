@@ -40,14 +40,65 @@ DB_PATH = 'combos.db'
 #: Bump on any schema change, and update ``web/server/schema.js`` to
 #: match.  The web server refuses to start against a version it does not
 #: recognise rather than corrupting data it half-understands.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: Event kinds.  ``propose`` and ``reject`` are what an agent emits after
 #: a search; ``vote`` and ``trial`` are what humans emit in the web app.
 KINDS = ('propose', 'reject', 'vote', 'trial', 'note')
 
-#: What a trial can conclude.  ``mixed`` is for "works but not like that".
+#: What a trial can conclude.  Derived from the score, not chosen: see
+#: :func:`verdict_for`.
 VERDICTS = ('good', 'bad', 'mixed')
+
+#: A trial is a rating out of 100.  Upvotes stay binary on purpose -- a
+#: vote is a cheap hunch about something nobody has cooked, a rating is
+#: earned experience, and they should not cost the same to give.
+SCORE_MIN, SCORE_MAX = 0, 100
+
+#: Band edges turning a rating into a verdict.
+GOOD_AT, BAD_BELOW = 70, 40
+
+#: Ranking uses a mean shrunk toward ``PRIOR_MEAN`` by ``PRIOR_WEIGHT``
+#: pseudo-ratings:
+#:
+#:     (PRIOR_MEAN * PRIOR_WEIGHT + sum(scores)) / (PRIOR_WEIGHT + n)
+#:
+#: Without this one person's 100 outranks three people's 85, which is
+#: exactly backwards.  The *displayed* number and the good/mixed/bad band
+#: both come from the raw mean instead, so a single enthusiastic trial
+#: still reads as "good" -- it just does not top the chart on its own.
+PRIOR_MEAN, PRIOR_WEIGHT = 50.0, 3.0
+
+#: Scores assumed for schema-v1 trials, which recorded a verdict and no
+#: number.  Only used when a trial event has no ``score``.
+LEGACY_VERDICT_SCORES = {'good': 80.0, 'mixed': 50.0, 'bad': 20.0}
+
+
+def clamp_score(value):
+    """Validate a rating, returning it as a float."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('Rating must be a number from 0 to 100')
+    if not SCORE_MIN <= score <= SCORE_MAX:
+        raise ValueError('Rating must be between 0 and 100, got %g' % score)
+    return score
+
+
+def verdict_for(score):
+    """Band a 0-100 rating into good / mixed / bad."""
+    if score >= GOOD_AT:
+        return 'good'
+    if score < BAD_BELOW:
+        return 'bad'
+    return 'mixed'
+
+
+def bayes_score(scores):
+    """The shrunk mean used for ranking.  Mirrored in SQL below."""
+    total = sum(scores)
+    return (PRIOR_MEAN * PRIOR_WEIGHT + total) / (PRIOR_WEIGHT + len(scores))
+
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -78,6 +129,20 @@ CREATE TABLE IF NOT EXISTS event (
 CREATE INDEX IF NOT EXISTS event_combo_idx ON event(combo_key);
 CREATE INDEX IF NOT EXISTS event_kind_idx  ON event(kind);
 CREATE INDEX IF NOT EXISTS event_ts_idx    ON event(ts);
+
+-- Derived from the scrape, not from the log: which cuisine / course /
+-- technique / ingredient each combination touches.  This is the one
+-- table that IS rebuilt wholesale (``Ledger.retag``), because SQL cannot
+-- reach the scraped lists the tags come from.  The append-only rule
+-- applies to ``event``; derived tables are free to be recomputed.
+CREATE TABLE IF NOT EXISTS combo_tag (
+    combo_key TEXT NOT NULL REFERENCES combo(combo_key),
+    facet     TEXT NOT NULL,
+    value     TEXT NOT NULL,
+    PRIMARY KEY (combo_key, facet, value)
+);
+
+CREATE INDEX IF NOT EXISTS combo_tag_idx ON combo_tag(facet, value);
 """
 
 # Views are derived code, not data: they are dropped and recreated every
@@ -104,20 +169,38 @@ SELECT combo_key, actor, value FROM (
     WHERE kind = 'vote'
 ) WHERE rn = 1 AND value <> 0;
 
--- Likewise for trials: an actor's latest report on a combination.
+-- Likewise for trials: an actor's latest rating of a combination.
+-- Schema-v1 trials carry a verdict and no number, so fall back to a
+-- representative score for those rather than dropping them.
 CREATE VIEW trial_current AS
-SELECT combo_key, actor, verdict, notes, ts FROM (
+SELECT combo_key, actor, score, verdict, notes, ts FROM (
     SELECT combo_key,
            actor,
-           json_extract(payload, '$.verdict') AS verdict,
-           json_extract(payload, '$.notes')   AS notes,
+           COALESCE(
+               CAST(json_extract(payload, '$.score') AS REAL),
+               CASE json_extract(payload, '$.verdict')
+                   WHEN 'good'  THEN 80.0
+                   WHEN 'mixed' THEN 50.0
+                   WHEN 'bad'   THEN 20.0
+               END
+           ) AS score,
+           CASE
+               WHEN CAST(json_extract(payload, '$.score') AS REAL) >= 70
+                   THEN 'good'
+               WHEN CAST(json_extract(payload, '$.score') AS REAL) < 40
+                   THEN 'bad'
+               WHEN json_extract(payload, '$.score') IS NOT NULL
+                   THEN 'mixed'
+               ELSE json_extract(payload, '$.verdict')
+           END AS verdict,
+           json_extract(payload, '$.notes') AS notes,
            ts,
            ROW_NUMBER() OVER (
                PARTITION BY combo_key, actor ORDER BY id DESC
            ) AS rn
     FROM event
     WHERE kind = 'trial'
-) WHERE rn = 1 AND verdict IS NOT NULL;
+) WHERE rn = 1 AND score IS NOT NULL;
 
 -- The first time a combination was put forward, and by whom: that is
 -- the agent's original claim, and later re-proposals must not overwrite
@@ -162,6 +245,10 @@ SELECT
     COALESCE(t.n_good, 0)     AS n_good,
     COALESCE(t.n_bad, 0)      AS n_bad,
     COALESCE(t.n_mixed, 0)    AS n_mixed,
+    t.mean_score,                 -- what people see; drives the band
+    t.min_score,
+    t.max_score,
+    t.bayes_score,                -- shrunk; drives ranking only
     p.proposed_by,
     p.rationale,
     r.rejected_by,
@@ -169,8 +256,8 @@ SELECT
     CASE
         WHEN COALESCE(t.n_trials, 0) > 0 THEN
             CASE
-                WHEN t.n_good > 0 AND t.n_bad = 0 THEN 'tried_good'
-                WHEN t.n_bad > 0 AND t.n_good = 0 THEN 'tried_bad'
+                WHEN t.mean_score >= 70 THEN 'tried_good'
+                WHEN t.mean_score < 40  THEN 'tried_bad'
                 ELSE 'tried_mixed'
             END
         WHEN r.rejected_by IS NOT NULL THEN 'rejected'
@@ -185,7 +272,12 @@ LEFT JOIN (
 ) v ON v.combo_key = c.combo_key
 LEFT JOIN (
     SELECT combo_key,
-           COUNT(*) AS n_trials,
+           COUNT(*)   AS n_trials,
+           AVG(score) AS mean_score,
+           MIN(score) AS min_score,
+           MAX(score) AS max_score,
+           -- Mirrors verdicts.bayes_score; keep the two in step.
+           (50.0 * 3.0 + SUM(score)) / (3.0 + COUNT(*)) AS bayes_score,
            SUM(CASE WHEN verdict = 'good'  THEN 1 ELSE 0 END) AS n_good,
            SUM(CASE WHEN verdict = 'bad'   THEN 1 ELSE 0 END) AS n_bad,
            SUM(CASE WHEN verdict = 'mixed' THEN 1 ELSE 0 END) AS n_mixed
@@ -229,6 +321,10 @@ class ComboState:
     n_good: int = 0
     n_bad: int = 0
     n_mixed: int = 0
+    mean_score: float = None
+    min_score: float = None
+    max_score: float = None
+    bayes_score: float = None
     proposed_by: str = None
     rationale: str = None
     rejected_by: str = None
@@ -355,12 +451,17 @@ class Ledger:
             raise ValueError('Vote must be -1, 0 or +1')
         return self.record(foods, 'vote', actor, {'value': value}, groups)
 
-    def trial(self, foods, actor, verdict, notes='', groups=None):
-        """Somebody actually ate it."""
-        if verdict not in VERDICTS:
-            raise ValueError('Verdict must be one of %s' % (VERDICTS,))
+    def trial(self, foods, actor, score, notes='', groups=None):
+        """Somebody actually ate it, and rated it out of 100.
+
+        The verdict is derived from the score rather than chosen, so the
+        band and the number can never disagree.
+        """
+        score = clamp_score(score)
         return self.record(
-            foods, 'trial', actor, {'verdict': verdict, 'notes': notes}, groups
+            foods, 'trial', actor,
+            {'score': score, 'verdict': verdict_for(score), 'notes': notes},
+            groups,
         )
 
     def note(self, foods, actor, text, groups=None):
@@ -376,26 +477,97 @@ class Ledger:
         ).fetchone()
         return ComboState.from_row(row) if row else None
 
-    def states(self, status=None, limit=None, order='score'):
-        """Every combination, newest-first or best-first."""
-        orders = {
-            'score': 'score DESC, first_seen DESC',
-            'recent': 'first_seen DESC',
-            'votes': 'ups + downs DESC, score DESC',
-        }
-        sql = 'SELECT * FROM combo_state'
+    #: ``rating`` ranks by the shrunk mean so a single rave does not top
+    #: the chart; untried combinations sort below rated ones.
+    ORDERS = {
+        'rating': 'bayes_score IS NULL, bayes_score DESC, score DESC',
+        'score': 'score DESC, first_seen DESC',
+        'recent': 'first_seen DESC',
+        'votes': 'ups + downs DESC, score DESC',
+    }
+
+    def states(self, status=None, limit=None, order='score', tags=None):
+        """Every combination, filtered and ordered.
+
+        ``tags`` are ``facet:value`` strings; a combination must carry
+        *all* of them, so ``['cuisine:italian', 'ingredient:pasta']``
+        narrows rather than widens.
+        """
+        sql = 'SELECT s.* FROM combo_state s'
         params = []
+        where = []
+        for index, tag in enumerate(tags or ()):
+            facet, value = tag.split(':', 1)
+            alias = 't%d' % index
+            sql += (' JOIN combo_tag %s ON %s.combo_key = s.combo_key'
+                    ' AND %s.facet = ? AND %s.value = ?'
+                    % (alias, alias, alias, alias))
+            params.extend([facet, value])
         if status:
-            placeholders = ','.join('?' * len(status))
-            sql += ' WHERE status IN (%s)' % placeholders
+            where.append('s.status IN (%s)' % ','.join('?' * len(status)))
             params.extend(status)
-        sql += ' ORDER BY %s' % orders.get(order, orders['score'])
+        if where:
+            sql += ' WHERE ' + ' AND '.join(where)
+        sql += ' ORDER BY %s' % self.ORDERS.get(order, self.ORDERS['score'])
         if limit:
             sql += ' LIMIT ?'
             params.append(limit)
         return [
             ComboState.from_row(r) for r in self.db.execute(sql, params)
         ]
+
+    # ---------------------------------------------------------------- tags
+
+    def retag(self, food_db=None):
+        """Recompute every combination's tags from the scrape.
+
+        Wholesale, because tags are derived: a changed rule in
+        :mod:`foodcombos.facets` should take effect everywhere at once,
+        and there is nothing here worth migrating.
+        """
+        from . import facets
+
+        rows = self.db.execute(
+            'SELECT combo_key, foods, groups FROM combo'
+        ).fetchall()
+        self.db.execute('DELETE FROM combo_tag')
+        tagged = 0
+        for row in rows:
+            foods = json.loads(row['foods'])
+            groups = facets.resolve_groups(
+                food_db, foods, json.loads(row['groups'])
+            )
+            tags = facets.tags_for_combo(groups)
+            for tag in tags:
+                facet, value = facets.split(tag)
+                self.db.execute(
+                    'INSERT OR IGNORE INTO combo_tag(combo_key, facet, value)'
+                    ' VALUES (?, ?, ?)',
+                    (row['combo_key'], facet, value),
+                )
+            tagged += bool(tags)
+        self.db.commit()
+        return tagged
+
+    def tags_for(self, key):
+        return [
+            '%s:%s' % (r['facet'], r['value'])
+            for r in self.db.execute(
+                'SELECT facet, value FROM combo_tag WHERE combo_key = ?'
+                ' ORDER BY facet, value',
+                (key,),
+            )
+        ]
+
+    def tag_counts(self):
+        """``{facet: [(value, n), ...]}`` for building a filter UI."""
+        counts = {}
+        for row in self.db.execute(
+            'SELECT facet, value, COUNT(*) AS n FROM combo_tag'
+            ' GROUP BY facet, value ORDER BY facet, n DESC, value'
+        ):
+            counts.setdefault(row['facet'], []).append((row['value'], row['n']))
+        return counts
 
     def settled_keys(self):
         """Keys the search should stop offering.

@@ -74,23 +74,31 @@ The scraper can propose; only a person can say whether it was any good.
 ```
 python ledger.py init            # create the ledger
 python tools/seed_ledger.py      # optional: the agent's first pass
+python ledger.py tag             # derive cuisine/course/technique tags
 
 cd web && npm install && npm run dev      # http://127.0.0.1:5173
 ```
 
 Three views: what was **proposed**, what was **rejected**, what somebody
-**tried**. Upvote, downvote, or record a verdict with notes. Local only,
-no accounts — the name you type is a label so the ledger can tell an
-agent's proposal from a human's verdict. See `web/README.md`.
+**tried**. Upvote a hunch, or — once you've actually cooked it — rate it
+**0–100** with notes. Filter by facet: *korean*, *dessert*, *smoked*,
+*pasta*. Local only, no accounts; the name you type is a label so the
+ledger can tell an agent's proposal from a human's verdict. See
+`web/README.md`.
 
 From the command line, without the app:
 
 ```
 python ledger.py list --status tried_good
+python ledger.py list --tag technique:smoked --order rating
 python ledger.py propose Katsuobushi Maple_butter --rationale "inosinate vs caramel"
-python ledger.py trial Katsuobushi Maple_butter --good --notes "on sourdough"
+python ledger.py trial Katsuobushi Maple_butter --score 88 --notes "on sourdough"
+python ledger.py tags                         # what facets exist
 python ledger.py export > verdicts.jsonl      # diffable snapshot
 ```
+
+Ratings show as a plain average, but *rank* by a mean shrunk toward 50,
+so one person's 100 doesn't outrank three people's 85.
 
 Searches then skip what's settled:
 

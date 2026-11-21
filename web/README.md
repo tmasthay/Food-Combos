@@ -14,6 +14,7 @@ The ledger must exist first; Python owns the schema.
 ```
 python ledger.py init            # from the repo root
 python tools/seed_ledger.py      # optional: the agent's first pass
+python ledger.py tag             # derive the facet tags
 ```
 
 Then:
@@ -83,15 +84,56 @@ All routes are under `/api`. Writes require an `actor` in the body.
 |---|---|---|
 | GET | `/api/health` | db path and schema version |
 | GET | `/api/stats` | counts by status, event total, actors |
-| GET | `/api/combos?status=&order=&actor=` | list, plus that actor's own votes |
+| GET | `/api/tags` | facet menu with counts |
+| GET | `/api/combos?status=&tag=&order=&actor=` | list, plus that actor's own votes |
 | GET | `/api/combos/:key` | one combination and its full event log |
 | POST | `/api/combos` | propose `{actor, foods[], rationale}` |
 | POST | `/api/combos/:key/vote` | `{actor, value}` — `+1`, `-1`, `0` to retract |
-| POST | `/api/combos/:key/trial` | `{actor, verdict, notes}` — good/bad/mixed |
+| POST | `/api/combos/:key/trial` | `{actor, score, notes}` — score is 0–100 |
 | POST | `/api/combos/:key/reject` | `{actor, reason}` |
 
 `:key` is the canonical combination key: member foods sorted and joined
 with `|`, URL-encoded. The same key Python uses.
+
+## Ratings
+
+A trial is a **0–100 score**; the good/mixed/bad band is derived from it
+(`>=70` / `<40` / between) so the colour and the number cannot disagree.
+Votes stayed binary: a vote is a cheap hunch about something nobody has
+cooked, a rating is earned, and they should not cost the same.
+
+Two aggregates, deliberately:
+
+- `mean_score` — the plain average. Shown on the card, decides the band.
+- `bayes_score` — shrunk toward 50 by three pseudo-ratings,
+  `(50*3 + Σscores) / (3 + n)`. Used only for ranking, so a single rave
+  doesn't outrank a tested favourite.
+
+## Facets
+
+Tags are derived from the list pages a food came from, not typed in:
+`cuisine`, `course`, `technique`, `ingredient`. Chips filter the list and
+**intersect** — korean *and* dessert, not either. Rebuild them with
+`python ledger.py tag` after adding combinations.
+
+## Tests
+
+```
+npm test                 # all of them
+npm test -- -g "lone rave"
+npm run test:headed      # watch it happen
+```
+
+Playwright, using the Edge already on the machine (no browser download).
+Each test gets its **own ledger in a temp directory and its own port**,
+so nothing touches your real `combos.db`, and each is self-contained
+enough to run alone.
+
+The multi-user tests open a browser context per person — separate
+`localStorage`, so genuinely separate identities — and every expected
+number is computed from the formula in the test rather than read back
+from the app. That means changing the aggregation breaks a test instead
+of silently agreeing with itself.
 
 ## What the scraper does with this
 

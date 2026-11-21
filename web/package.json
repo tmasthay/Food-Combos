@@ -9,12 +9,15 @@
     "dev:api": "node --watch server/index.js",
     "dev:ui": "vite",
     "build": "vite build",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
   },
   "dependencies": {
     "express": "^5.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@vitejs/plugin-react": "^5.0.4",
     "concurrently": "^9.2.1",
     "react": "^19.2.0",

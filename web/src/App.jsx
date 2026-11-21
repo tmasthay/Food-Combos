@@ -3,6 +3,7 @@ import ComboCard from './components/ComboCard.jsx';
 import {
   fetchCombos,
   fetchStats,
+  fetchTags,
   sendPropose,
   sendReject,
   sendTrial,
@@ -24,10 +25,14 @@ const TABS = [
 ];
 
 const ORDERS = [
-  { id: 'score', label: 'best' },
+  { id: 'rating', label: 'best rated' },
+  { id: 'score', label: 'most upvoted' },
   { id: 'recent', label: 'newest' },
   { id: 'votes', label: 'most voted' },
 ];
+
+// Which facet a chip belongs to, in the order the filter bar shows them.
+const FACET_ORDER = ['cuisine', 'course', 'technique', 'ingredient'];
 
 export default function App() {
   // The nickname is a label, not a credential -- there is no auth here on
@@ -35,7 +40,9 @@ export default function App() {
   // what, which is the part the scraper cares about.
   const [actor, setActor] = useState(() => localStorage.getItem('actor') ?? '');
   const [tab, setTab] = useState('proposed');
-  const [order, setOrder] = useState('score');
+  const [order, setOrder] = useState('rating');
+  const [tags, setTags] = useState([]);
+  const [facets, setFacets] = useState({});
   const [data, setData] = useState({ combos: [], mine: {} });
   const [stats, setStats] = useState(null);
   const [error, setError] = useState('');
@@ -54,19 +61,21 @@ export default function App() {
   const reload = useCallback(async () => {
     setBusy(true);
     try {
-      const [combos, s] = await Promise.all([
-        fetchCombos({ status, order, actor }),
+      const [combos, s, f] = await Promise.all([
+        fetchCombos({ status, order, actor, tags }),
         fetchStats(),
+        fetchTags(),
       ]);
       setData(combos);
       setStats(s);
+      setFacets(f);
       setError('');
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
-  }, [status, order, actor]);
+  }, [status, order, actor, tags]);
 
   useEffect(() => {
     reload();
@@ -88,10 +97,17 @@ export default function App() {
   };
 
   const onVote = act((key, value) => sendVote(key, actor, value));
-  const onTrial = act((key, verdict, notes) =>
-    sendTrial(key, actor, verdict, notes)
-  );
+  const onTrial = act((key, score, notes) => sendTrial(key, actor, score, notes));
   const onReject = act((key, reason) => sendReject(key, actor, reason));
+
+  // Chips toggle, and they intersect: picking korean and dessert asks for
+  // combinations that touch both, not either.
+  const toggleTag = (tag) =>
+    setTags((current) =>
+      current.includes(tag)
+        ? current.filter((t) => t !== tag)
+        : [...current, tag]
+    );
 
   const onPropose = act(async () => {
     const foods = draft.foods
@@ -181,6 +197,33 @@ export default function App() {
         </button>
       </section>
 
+      <section className="facets">
+        {FACET_ORDER.filter((f) => facets[f]?.length).map((facet) => (
+          <div className="facet" key={facet}>
+            <span className="facet-name">{facet}</span>
+            {facets[facet].map(({ value, n }) => {
+              const tag = `${facet}:${value}`;
+              return (
+                <button
+                  key={tag}
+                  className={`tag tag-${facet} ${
+                    tags.includes(tag) ? 'on' : ''
+                  }`}
+                  onClick={() => toggleTag(tag)}
+                >
+                  {value.replace(/_/g, ' ')} <span className="n">{n}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {tags.length > 0 && (
+          <button className="link clear" onClick={() => setTags([])}>
+            clear {tags.length} filter{tags.length > 1 ? 's' : ''}
+          </button>
+        )}
+      </section>
+
       {error && (
         <div className="error" onClick={() => setError('')}>
           {error} <span className="dim">(click to dismiss)</span>
@@ -200,19 +243,33 @@ export default function App() {
               onVote={onVote}
               onTrial={onTrial}
               onReject={onReject}
+              onTagClick={toggleTag}
+              activeTags={tags}
             />
           ))
         ) : (
           <p className="dim pad">
-            Nothing here yet. Run <code>python tools/seed_ledger.py</code> for
-            the agent's first pass, or propose one above.
+            {tags.length ? (
+              <>
+                Nothing matches {tags.join(' + ')}.{' '}
+                <button className="link" onClick={() => setTags([])}>
+                  clear the filters
+                </button>
+              </>
+            ) : (
+              <>
+                Nothing here yet. Run{' '}
+                <code>python tools/seed_ledger.py</code> for the agent's first
+                pass, or propose one above.
+              </>
+            )}
           </p>
         )}
       </main>
 
       <footer className="dim">
-        Local only · no accounts · the ledger is append-only, so a changed
-        vote is a new entry rather than an edit
+        Local only · no accounts · ratings are 0–100 and rank by a mean
+        shrunk toward 50, so one rave does not outrank a tested favourite
       </footer>
     </div>
   );

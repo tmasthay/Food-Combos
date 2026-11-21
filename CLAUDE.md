@@ -146,8 +146,8 @@ Four event kinds, append-only:
 |---|---|---|
 | `propose` | usually you | "this might work, here's the mechanism" |
 | `reject` | usually you | "ruled out, here's why" — without cooking it |
-| `vote` | humans, in the web app | a hunch, cheap to give |
-| `trial` | humans, in the web app | somebody actually ate it |
+| `vote` | humans, in the web app | a hunch about something untried; cheap |
+| `trial` | humans, in the web app | somebody ate it and rated it 0-100 |
 
 A *trial outranks a rejection*: armchair reasoning loses to a fork. And
 the newest event from one actor wins, so a changed vote is a new row,
@@ -156,6 +156,48 @@ never an edit. The whole history stays readable:
 ```
 python ledger.py log Katsuobushi Maple_butter
 ```
+
+### Ratings, and why there are two numbers
+
+A trial carries a **0-100 score**. Two aggregates come out of it, and
+they are not interchangeable:
+
+- **`mean_score`** -- the plain average. This is what the UI shows and
+  what decides the good/mixed/bad band (`>=70` / `<40` / between). One
+  enthusiastic trial therefore still reads as "good", which is what a
+  person expects.
+- **`bayes_score`** -- the same mean shrunk toward 50 by three
+  pseudo-ratings: `(50*3 + sum(scores)) / (3 + n)`. Used for **ranking
+  only**. Without it one person's 100 outranks three people's 85, which
+  is backwards.
+
+Quote `mean_score` when describing a combination; trust `bayes_score`
+when deciding what to look at first. `verdicts.bayes_score` and the SQL
+in `combo_state` compute the same thing -- keep them in step.
+
+Votes stayed binary on purpose. A vote is a cheap hunch about something
+nobody has cooked; a rating is earned. They should not cost the same.
+
+### Facets: the other axis
+
+`ledger.py tag` derives tags from the list pages a combination's foods
+came from, so `Meals.Asia.List_of_Korean_dishes` yields `cuisine:korean`
+and `Meals.seeds.List_of_pasta` yields `ingredient:pasta`. Four facets:
+`cuisine`, `course`, `technique`, `ingredient`. Rules live in
+`foodcombos/facets.py`.
+
+Tags are derived, like the SQL views: `retag()` rebuilds the lot, so
+editing a rule costs a re-run and nothing else. Filters **intersect** --
+`--tag cuisine:korean --tag course:dessert` means both, not either.
+
+```
+python ledger.py tag                              # recompute
+python ledger.py tags                             # what exists
+python ledger.py list --tag technique:smoked --order rating
+```
+
+Reach for this when a human says "find me more Italian things" or "what
+works with pasta" -- it beats guessing at food names.
 
 ### Your side of the loop
 
@@ -166,6 +208,7 @@ the next pass re-offering the same dead ends:
 ```
 python ledger.py propose Katsuobushi Maple_butter     --rationale "inosinate against caramel; bacon-and-maple without the fat"
 python ledger.py reject Paprika Tsampa     --reason "paprika is an ingredient, not a thing you pair with porridge"
+python ledger.py tag      # so the new ones are filterable
 ```
 
 Then `search.py` consults the ledger automatically:
@@ -210,6 +253,10 @@ proposing a near-duplicate.
   rationale is noise a human has to clear. Propose what you can argue for.
 - Don't edit the schema on the Node side. Python owns it; bump
   `SCHEMA_VERSION` in both places or the server refuses to start.
+- Don't average ratings yourself from raw events. Use `combo_state`; it
+  already handles one-rating-per-person and the shrunk mean.
+- After proposing anything, run `python ledger.py tag` so it carries
+  facets. Untagged combinations are invisible to every tag filter.
 
 ## Narrowed search: reading what the human wants
 
