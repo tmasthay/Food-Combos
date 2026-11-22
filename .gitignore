@@ -1,0 +1,14 @@
+Final/
+data.yaml
+Queries/
+out.txt
+__pycache__/
+*.pyc
+combos.db
+combos.db-wal
+combos.db-shm
+verdicts.jsonl
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/

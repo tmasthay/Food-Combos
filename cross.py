@@ -1,99 +1,91 @@
+"""Cross several scraped lists into one output file.
+
+    python cross.py --cartesian --out Queries/coffee_dessert \
+        Final/Meals/Sweets/List_of_coffee_dishes/results.txt \
+        Final/Meals/Sweets/List_of_desserts/results.txt
+
+The legacy ``key=value`` spelling still works::
+
+    python cross.py ext=txt cartesian=True out_file='Queries/coffee_dessert' \
+        input_files='["a/results.txt","b/results.txt"]'
+"""
+
+import argparse
+import ast
 import sys
-import itertools
-from subprocess import check_output as co
-from update import write_and_close, go
-from helper import get_arg
 
-def remove_all(the_list, elem):
-    try:
-        while( True ):
-            the_list.remove(elem)
-    except:
-        pass
-    return the_list
+from foodcombos.cli import use_utf8_stdout
+from foodcombos.combos import COLUMN_GAP, product_text
+from foodcombos.paths import write_text
 
-def create_product(ext, input_files, out_file,
-    empty, cartesian=False, nspaces=5):
+LEGACY_FLAGS = ('empty', 'cartesian', 'update')
 
-    if( len(input_files) == 0 ):
-        raise Exception('No input files!')
-    
-    if( empty ):
-        l = [open(e, 'r').read().split('\n') \
-            for e in input_files]
-    else:
-        l = [remove_all(open(e, 'r').read() \
-            .split('\n'), '') \
-            for e in input_files]
-   
-    if( cartesian ): 
-        u = '\n'.join([','.join(e) \
-            for e in itertools.product(*l)])
-    else:
-        lengths = [len(e) for e in l]
-        max_length = max(lengths)
-        spaces = ''.join(nspaces * [' '])
-        u = ''
-        for i in range(max_length):
-            curr_line = ''
-            for e in l:
-                if( i < len(e) ):
-                    curr_line = '%s%s'%(curr_line,
-                       e[i])
-                curr_line = curr_line + spaces
-            u += curr_line + '\n'
-    write_and_close(out_file, u)
 
-def getResults():
-    ext_default = 'txt'
-    out_default = 'out.%s'%ext_default
-    empty_default = False
-    input_default = '[]'
-    cartesian_default = False
-    update_default = False
-    print('Usage: python cross.py ext= %s'%(
-        'out_file= empty= input_files= %s'%(
-        'cartesian= update=')))
-    print('Unspecified parameters default to %s'%(
-        'to the following: input_files is %s'%(
-        'mandatory, else the program will quit.')))
-    print('ext=%s'%ext_default)
-    print('out_file=%s'%out_default)
-    print('empty=%s'%str(empty_default))
-    print('input_default=%s'%(input_default))
-    print('cartesian_default=%s'%str(
-        cartesian_default))
-    print('update_default=%s'%(str(
-       update_default)))
-    
-    ext = get_arg('ext', ext_default, str)
-    input_files = get_arg('input_files', 
-        input_default, 
-        eval)
-    out_file = get_arg('out_file', 
-        out_default, 
-        str)
-    empty = get_arg('empty', empty_default,
-        lambda x : str(x).lower()[0] == 't')
-    cartesian = get_arg('cartesian', 
-        cartesian_default,
-        lambda x : str(x).lower()[0] == 't')
-    update_data = get_arg('update',
-        update_default,
-        lambda x: str(x).lower()[0] == 't')
-        
-    if( ext not in out_file ):
-        out_file = '%s.%s'%(out_file,ext)
+def _rewrite_legacy_args(argv):
+    """Translate ``key=value`` arguments into ordinary flags."""
+    rewritten = []
+    for arg in argv:
+        if '=' not in arg:
+            rewritten.append(arg)
+            continue
+        key, value = arg.split('=', 1)
+        value = value.strip('\'"')
+        if key == 'input_files':
+            rewritten.extend(ast.literal_eval(value))
+        elif key == 'out_file':
+            rewritten.extend(['--out', value])
+        elif key == 'ext':
+            rewritten.extend(['--ext', value])
+        elif key in LEGACY_FLAGS:
+            if value[:1].lower() == 't':
+                rewritten.append('--%s' % key)
+        else:
+            rewritten.append(arg)
+    return rewritten
 
-    if( update_data ):
-        print('REFETCHING DATABASE')    
-        go(True)
-        print('DONE REFETCHING')
 
-    print('BEGINNING PRODUCT QUERY')
-    create_product(ext, input_files, out_file, 
-        empty, cartesian)
-    print('SUCCESS: output in "%s"'%(out_file))
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('input_files', nargs='*', help='results.txt files to cross')
+    parser.add_argument('--out', default='out', help='output file (default: %(default)s)')
+    parser.add_argument('--ext', default='txt', help='extension for --out')
+    parser.add_argument('--cartesian', action='store_true',
+                        help='every combination instead of side-by-side columns')
+    parser.add_argument('--empty', action='store_true',
+                        help='keep blank lines from the inputs')
+    parser.add_argument('--update', action='store_true',
+                        help='re-scrape the database first')
+    parser.add_argument('--gap', type=int, default=COLUMN_GAP)
+    return parser.parse_args(_rewrite_legacy_args(
+        sys.argv[1:] if argv is None else argv
+    ))
+
+
+def main(argv=None):
+    use_utf8_stdout()
+    args = parse_args(argv)
+    if not args.input_files:
+        raise SystemExit('No input files given. See --help.')
+
+    out = args.out if args.out.endswith('.%s' % args.ext) \
+        else '%s.%s' % (args.out, args.ext)
+
+    if args.update:
+        # Imported here, not at the top: crossing lists already on disk
+        # is an offline operation and must not need the fetching stack.
+        from foodcombos.scrape import run
+        print('Refetching database...')
+        run(refetch=True)
+
+    text = product_text(
+        args.input_files,
+        keep_empty=args.empty,
+        as_cartesian=args.cartesian,
+        gap=args.gap,
+    )
+    write_text(out, text)
+    print('Wrote %s' % out)
+
 
 if __name__ == '__main__':
-    getResults()
+    main()
